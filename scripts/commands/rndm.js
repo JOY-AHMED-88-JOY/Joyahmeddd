@@ -3,7 +3,7 @@ const fs = require("fs");
 
 module.exports = {
   config: {
-    name: "11",
+    name: "rndm",
     version: "0.0.2",
     permission: 0,
     prefix: true,
