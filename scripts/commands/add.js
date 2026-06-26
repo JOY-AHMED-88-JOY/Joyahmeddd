@@ -1,92 +1,118 @@
 const axios = require("axios");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+const FormData = require("form-data");
 
 module.exports.config = {
   name: "add",
-  version: "1.0.2",
-  credits: "Joy",
+  version: "1.0.0",
+  credits: "JOY AHMED + ChatGPT",
   permission: 0,
-  description: "Reply to video and add to API",
-  category: "media",
-  usages: "/add <name> (reply to video)",
-  prefix: true
+  description: "Add replied video to database",
+  category: "admin",
+  usages: "reply video then /add <name>",
+  prefix: true,
+  cooldown: 5,
+  dependencies: {
+    axios: "",
+    "form-data": ""
+  }
 };
 
-module.exports.run = async function ({ api, event, args }) {
+module.exports.run = async ({ api, event, args }) => {
   try {
-    if (!args[0]) {
+
+    if (!event.messageReply)
       return api.sendMessage(
-        "❌ Usage: Reply to a video and type /add <name>",
-        event.threadID
+        "❌ Reply to a video.",
+        event.threadID,
+        event.messageID
       );
-    }
 
-    if (!event.messageReply) {
+    const att = event.messageReply.attachments[0];
+
+    if (!att || att.type !== "video")
       return api.sendMessage(
-        "❌ You must reply to a video.",
-        event.threadID
+        "❌ Reply must contain a video.",
+        event.threadID,
+        event.messageID
       );
-    }
 
-    const reply = event.messageReply;
-    const videoAttachment = reply.attachments.find(a => a.type === "video");
+    const name = args.join(" ").trim();
 
-    if (!videoAttachment || !videoAttachment.url) {
+    if (!name)
       return api.sendMessage(
-        "❌ No video found in replied message.",
-        event.threadID
+        "Usage:\n/add joy video",
+        event.threadID,
+        event.messageID
       );
-    }
 
-    /* 🔹 STEP 1: Load API base URL from GitHub */
-    const apiJson = await axios.get(
-      "https://raw.githubusercontent.com/JUBAED-AHMED-JOY/Joy/main/api.json"
+    const temp = path.join(
+      os.tmpdir(),
+      Date.now() + ".mp4"
     );
 
-    const BASE_URL = apiJson.data.add;
-    if (!BASE_URL) {
-      return api.sendMessage(
-        "❌ rndm API not found in api.json",
-        event.threadID
-      );
-    }
+    const writer = fs.createWriteStream(temp);
 
-    const name = args[0].toLowerCase();
-    const videoUrl = videoAttachment.url;
+    const response = await axios({
+      url: att.url,
+      method: "GET",
+      responseType: "stream"
+    });
 
-    api.sendMessage("⏳ Sending video to API...", event.threadID);
+    response.data.pipe(writer);
 
-    /* 🔹 STEP 2: Add endpoint inside command */
-    const apiRes = await axios.post(
-      `${BASE_URL}/add`,
-      { name, videoUrl },
+    await new Promise((resolve, reject) => {
+      writer.on("finish", resolve);
+      writer.on("error", reject);
+    });
+
+    const form = new FormData();
+
+    form.append("name", name);
+
+    form.append(
+      "video",
+      fs.createReadStream(temp)
+    );
+        const { data } = await axios.post(
+      "https://joy-random-api-11.vercel.app/add",
+      form,
       {
-        headers: { "Content-Type": "application/json" },
-        timeout: 300000
+        headers: form.getHeaders(),
+        maxBodyLength: Infinity
       }
     );
 
-    if (!apiRes.data.success) {
+    fs.unlinkSync(temp);
+
+    if (!data.status) {
       return api.sendMessage(
-        `❌ API Error: ${apiRes.data.msg}`,
-        event.threadID
+        "❌ " + (data.message || "Upload failed."),
+        event.threadID,
+        event.messageID
       );
     }
 
-    const data = apiRes.data.data;
-
     api.sendMessage(
-      `✅ Video Added Successfully!
+      `✅ Video Added Successfully
+
 📛 Name: ${data.name}
-🔢 Serial: ${data.serial}
-🔗 Link: ${data.url}
-📦 Source: ${data.source}`,
-      event.threadID
+🔗 URL: ${data.url}`,
+      event.threadID,
+      event.messageID
     );
 
-  } catch (err) {
+  } catch (e) {
+
+    console.log(e);
+
     api.sendMessage(
-      `❌ Error:\n${err.response?.data?.msg || err.message}`,
-      event.threadID
+      "❌ Error:\n" + e.message,
+      event.threadID,
+      event.messageID
     );
+
   }
 };
